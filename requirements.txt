@@ -6,3 +6,4 @@ python-docx
 easyocr
 opencv-python-headless
 pypdfium2
+Pillow
