@@ -82,7 +82,8 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
-   # Document Upload Option for Auto-Fill
+ with col1:
+    # Document Upload Option for Auto-Fill
     uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
     
     default_name = "SK TRADERS"
@@ -100,7 +101,7 @@ with col1:
             image = Image.open(uploaded_doc)
             results = reader.readtext(np.array(image), detail=0)
             
-            # தேவையில்லாத குப்பை வார்த்தைகளை நீக்குதல் (Clean Text Filter)
+            # தேவையில்லாத குப்பை வார்த்தைகளை நீக்குதல்
             clean_lines = []
             for text in results:
                 if len(re.sub(r'[^a-zA-Z]', '', text)) > 3:
@@ -111,6 +112,10 @@ with col1:
                 if len(clean_lines) > 1:
                     default_address = ", ".join(clean_lines[1:4])
                 st.success("Document extracted successfully!")
+
+    # Name and Address Inputs (இங்கே தான் cust_input வரையறுக்கப்படுகிறது)
+    cust_input = st.text_input("Customer Name", default_name)
+    
     if cust_input:
         salutation = get_salutation(cust_input)
         customer_name = f"{salutation} {cust_input.upper()}"
