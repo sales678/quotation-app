@@ -80,7 +80,6 @@ if not variant_column:
 
 # --- 5. INPUT FIELDS ---
 col1, col2 = st.columns(2)
-
 # Document Upload Option for Auto-Fill
         uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
         
@@ -114,8 +113,6 @@ col1, col2 = st.columns(2)
             customer_name = ""
             
         customer_address = st.text_area("Customer Address", default_address)
-        
-        if cust_input:
             salutation = get_salutation(cust_input)
             customer_name = f"{salutation} {cust_input.upper()}"
         else:
