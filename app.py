@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 from docxtpl import DocxTemplate
 import re
+from PIL import Image
 
 def get_salutation(name):
     name_upper = name.upper()
@@ -93,95 +94,101 @@ with col1:
     extracted_address = ""
     
     if uploaded_docs:
-        with st.spinner("Processing Document... Extracting accurate Name & Address"):
-            import easyocr
-            import numpy as np
-            from PIL import Image
-            
-            reader = easyocr.Reader(['en'])
-            
-            ignore_phrases = [
-                "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX",
-                "DETAILS AS ON", "UNIQUE IDENTIFICATION", "AUTHORITY", "AADHAAR",
-                "PROOF OF IDENTITY", "CITIZENSHIP", "ENROLLMENT", "HELP@UIDAI",
-                "WWW.UIDAI", "1947", "ISSUE DATE", "YOUR AADHAAR NO", "ENROLLMENT NO"
-            ]
-            
-            for uploaded_doc in uploaded_docs:
-                images_to_process = []
+        with st.spinner("Processing Document... Extracting details"):
+            try:
+                import pytesseract
                 
-                if uploaded_doc.name.lower().endswith(".pdf"):
-                    import pypdfium2 as pdfium
-                    pdf = pdfium.PdfDocument(uploaded_doc.read())
-                    for p in pdf:
-                        images_to_process.append(p.render(scale=2).to_pil())
-                else:
-                    images_to_process.append(Image.open(uploaded_doc))
+                ignore_phrases = [
+                    "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX",
+                    "DETAILS AS ON", "UNIQUE IDENTIFICATION", "AUTHORITY", "AADHAAR",
+                    "PROOF OF IDENTITY", "CITIZENSHIP", "ENROLLMENT", "HELP@UIDAI",
+                    "WWW.UIDAI", "1947", "ISSUE DATE", "YOUR AADHAAR NO", "ENROLLMENT NO", "MALE", "FEMALE"
+                ]
                 
-                for img in images_to_process:
-                    raw_text_list = reader.readtext(np.array(img), detail=0)
+                all_text_lines = []
+                
+                for uploaded_doc in uploaded_docs:
+                    images_to_process = []
                     
-                    # --- TYPE 1: Aadhaar Letter ("To" Block Parser) ---
-                    to_index = -1
-                    for idx, line in enumerate(raw_text_list):
-                        if line.strip().upper() in ["TO", "TO:"]:
-                            to_index = idx
-                            break
+                    if uploaded_doc.name.lower().endswith(".pdf"):
+                        import pypdfium2 as pdfium
+                        pdf = pdfium.PdfDocument(uploaded_doc.read())
+                        for p in pdf:
+                            images_to_process.append(p.render(scale=2).to_pil())
+                    else:
+                        images_to_process.append(Image.open(uploaded_doc))
                     
-                    if to_index != -1 and to_index + 1 < len(raw_text_list):
-                        # "To" வார்த்தைக்கு அடுத்த வரியே பெயர்
-                        possible_name = raw_text_list[to_index + 1].strip()
-                        if re.match(r'^[a-zA-Z\s.]+$', possible_name) and len(possible_name) >= 3:
-                            extracted_name = possible_name
-                        
-                        # "To" பிளாக்கிற்கு கீழ் உள்ள அட்ரஸ் வரிகளை சேகரித்தல்
-                        addr_parts = []
-                        for k in range(to_index + 2, len(raw_text_list)):
-                            l_text = raw_text_list[k].strip()
-                            # 12-டிஜிட் ஆதார் எண் அல்லது மொபைல் அல்லது அரசு தலைப்புகள் வந்தாலோ நிறுத்திவிடும்
-                            if any(phrase in l_text.upper() for phrase in ignore_phrases) or re.search(r'\d{4}\s?\d{4}\s?\d{4}', l_text):
-                                break
+                    for img in images_to_process:
+                        # Tesseract OCR மூலம் உரையை எடுப்பது
+                        raw_text = pytesseract.image_to_string(img, lang='eng')
+                        for line in raw_text.split('\n'):
+                            if line.strip():
+                                all_text_lines.append(line.strip())
+                
+                # --- TYPE 1: "To" Block Parser (Letter Format) ---
+                for idx, line in enumerate(all_text_lines):
+                    clean_line = line.strip().upper()
+                    if clean_line in ["TO", "TO:"] or clean_line.startswith("TO "):
+                        # "To" வார்த்தைக்குப் பின்வரும் வரிகளை ஆராய்கிறது
+                        for k in range(idx + 1, min(idx + 8, len(all_text_lines))):
+                            candidate = all_text_lines[k].strip()
+                            candidate_upper = candidate.upper()
                             
-                            # தமிழ் எழுத்துக்கள் தவிர்த்து சுத்தமான வரிகளை மட்டும் சேர்ப்பது
-                            clean_l = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', l_text).strip()
-                            if len(clean_l) > 2 and not clean_l.isdigit():
-                                addr_parts.append(clean_l)
-                        
-                        if addr_parts and not extracted_address:
-                            extracted_address = ", ".join(addr_parts)
-
-                    # --- TYPE 2: Normal Aadhaar Card Front (DOB / Male Based) ---
-                    if not extracted_name:
-                        for i, line in enumerate(raw_text_list):
-                            upper_line = line.upper()
-                            if any(k in upper_line for k in ["DOB", "DATE OF BIRTH", "MALE", "FEMALE"]):
-                                for j in range(i - 1, -1, -1):
-                                    candidate = raw_text_list[j].strip()
-                                    if re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 3:
-                                        if not any(ph in candidate.upper() for ph in ignore_phrases):
-                                            extracted_name = candidate
-                                            break
-                                if extracted_name:
-                                    break
-
-                    # --- TYPE 3: Normal Aadhaar Card Back (Address Block Based) ---
-                    if not extracted_address:
-                        full_text = " \n ".join(raw_text_list)
-                        if any(k in full_text for k in ["Address", "ADDRESS", "S/O", "C/O"]):
-                            match = re.search(r'(?:Address|ADDRESS|S/O|C/O)[:\s]*(.*)', full_text, re.DOTALL)
-                            if match:
-                                addr_block = match.group(1)
+                            # பெயரைக் கண்டறிதல்
+                            if not extracted_name and re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 3:
+                                if not any(ph in candidate_upper for ph in ignore_phrases):
+                                    extracted_name = candidate
+                                    continue
+                            
+                            # முகவரியைக் கண்டறிதல் (S/O, NO, VTC, District போன்றவை வந்தாலோ)
+                            if any(w in candidate_upper for w in ["S/O", "D/O", "W/O", "C/O", "NO", "NAGAR", "STREET", "ROAD", "VTC", "DISTRICT", "STATE", "PIN"]):
                                 addr_lines = []
-                                for line in addr_block.split('\n'):
-                                    line_str = line.strip()
-                                    if not re.search(r'(\d{4}\s?\d{4}\s?\d{4}|VID|help@uidai|www|1947|Details as on)', line_str, re.IGNORECASE):
-                                        clean_addr = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', line_str).strip()
-                                        if len(clean_addr) > 2:
-                                            addr_lines.append(clean_addr)
-                                if addr_lines:
-                                    extracted_address = ", ".join(addr_lines[:5])
-
-            st.success("Document processed successfully!")
+                                for m in range(k, min(k + 6, len(all_text_lines))):
+                                    a_text = all_text_lines[m].strip()
+                                    if any(ph in a_text.upper() for ph in ignore_phrases) or re.search(r'\d{4}\s?\d{4}\s?\d{4}', a_text):
+                                        break
+                                    clean_a = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', a_text).strip()
+                                    if len(clean_a) > 2:
+                                        addr_lines.append(clean_a)
+                                if addr_lines and not extracted_address:
+                                    extracted_address = ", ".join(addr_lines)
+                                    break
+                
+                # --- TYPE 2: Normal Card Name Parser ---
+                if not extracted_name:
+                    for i, line in enumerate(all_text_lines):
+                        upper_line = line.upper()
+                        if any(k in upper_line for k in ["DOB", "DATE OF BIRTH", "MALE", "FEMALE"]):
+                            for j in range(i - 1, -1, -1):
+                                candidate = all_text_lines[j].strip()
+                                if re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 3:
+                                    if not any(ph in candidate.upper() for ph in ignore_phrases):
+                                        extracted_name = candidate
+                                        break
+                            if extracted_name:
+                                break
+                
+                # --- TYPE 3: Normal Card Address Parser ---
+                if not extracted_address:
+                    full_text = " \n ".join(all_text_lines)
+                    if any(k in full_text for k in ["Address", "ADDRESS", "S/O", "C/O"]):
+                        match = re.search(r'(?:Address|ADDRESS|S/O|C/O)[:\s]*(.*)', full_text, re.DOTALL)
+                        if match:
+                            addr_block = match.group(1)
+                            addr_lines = []
+                            for line in addr_block.split('\n'):
+                                line_str = line.strip()
+                                if not re.search(r'(\d{4}\s?\d{4}\s?\d{4}|VID|help@uidai|www|1947|Details as on)', line_str, re.IGNORECASE):
+                                    clean_addr = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', line_str).strip()
+                                    if len(clean_addr) > 2:
+                                        addr_lines.append(clean_addr)
+                            if addr_lines:
+                                extracted_address = ", ".join(addr_lines[:5])
+                
+                st.success("Document processed successfully!")
+                
+            except Exception as e:
+                st.error(f"⚠️ Document Extract செய்யும்போது பிழை ஏற்பட்டது: {e}")
 
     # Dynamic Value Assignment
     default_name = extracted_name if extracted_name else ""
