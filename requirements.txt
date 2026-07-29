@@ -3,6 +3,6 @@ pandas
 openpyxl
 docxtpl
 python-docx
-pytesseract
+easyocr
 pypdfium2
 Pillow
