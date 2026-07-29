@@ -84,11 +84,28 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 # Document Upload Option for Auto-Fill
-        uploaded_doc = st.file_uploader("📄 Upload Image/PDF (Aadhar/RC/Card)", type=["png", "jpg", "jpeg", "pdf"])
+        uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
         
         default_name = "SK TRADERS"
         default_address = "100FT RING ROAD, HOSUR"
         
+        # EasyOCR மூலம் இமேஜிலிருந்து தானாக Name & Address எடுக்கும் லாஜிக்
+        if uploaded_doc is not None:
+            with st.spinner("Processing Document... Please wait"):
+                import easyocr
+                import numpy as np
+                from PIL import Image
+                
+                reader = easyocr.Reader(['en'])
+                image = Image.open(uploaded_doc)
+                results = reader.readtext(np.array(image), detail=0)
+                
+                if results:
+                    default_name = results[0]
+                    if len(results) > 1:
+                        default_address = ", ".join(results[1:4])
+                    st.success("Document extracted successfully!")
+
         # Name and Address Inputs
         cust_input = st.text_input("Customer Name", default_name)
         
