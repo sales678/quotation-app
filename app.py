@@ -1,6 +1,22 @@
 import os
 import pandas as pd
 import streamlit as st
+   def get_salutation(name):
+    name_upper = name.upper()
+    
+    # கம்பெனி பெயர்கள் (Company / Business)
+    company_keywords = ["TRADERS", "MOTORS", "ENTERPRISES", "LIMITED", "LTD", "AGENCY", "WORKS", "STORES", "COMPANY", "CO"]
+    if any(keyword in name_upper for keyword in company_keywords):
+        return "M/S."
+    
+    # பெண்கள் பெயர்கள் (Female)
+    female_keywords = ["MRS", "MISS", "KUMARI", "DEVI", "AMMAL", "MARY", "LAKSHMI", "ANITHA", "PRIYA", "KAVITHA"]
+    if any(keyword in name_upper for keyword in female_keywords):
+        return "MRS."
+    
+    # ஆண்கள் (Default Male)
+    return "MR."
+    
 from docxtpl import DocxTemplate
 
 st.set_page_config(page_title="Auto Vehicle Quotation Generator", layout="wide")
@@ -67,9 +83,22 @@ if not variant_column:
 # --- 5. INPUT FIELDS ---
 col1, col2 = st.columns(2)
 
-with col1:
-    customer_name = st.text_input("Customer Name", "MS. SK TRADERS")
-    customer_address = st.text_area("Customer Address", "100FT RING ROAD, HOSUR")
+# Document Upload Option for Auto-Fill
+        uploaded_doc = st.file_uploader("📄 Upload Image/PDF (Aadhar/RC/Card)", type=["png", "jpg", "jpeg", "pdf"])
+        
+        default_name = "SK TRADERS"
+        default_address = "100FT RING ROAD, HOSUR"
+        
+        # Name and Address Inputs
+        cust_input = st.text_input("Customer Name", default_name)
+        
+        if cust_input:
+            salutation = get_salutation(cust_input)
+            customer_name = f"{salutation} {cust_input.upper()}"
+        else:
+            customer_name = ""
+            
+        customer_address = st.text_area("Customer Address", default_address)
     
     # FSC Name Selection
     fsc_name = st.selectbox("Select FSC Name", list(fsc_details.keys()))
