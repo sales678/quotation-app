@@ -1,7 +1,8 @@
 import os
 import pandas as pd
 import streamlit as st
-   def get_salutation(name):
+
+def get_salutation(name):
     name_upper = name.upper()
     
     # கம்பெனி பெயர்கள் (Company / Business)
@@ -16,9 +17,6 @@ import streamlit as st
     
     # ஆண்கள் (Default Male)
     return "MR."
-    
-from docxtpl import DocxTemplate
-
 st.set_page_config(page_title="Auto Vehicle Quotation Generator", layout="wide")
 st.title("🚗 Auto Vehicle Quotation Generator")
 
