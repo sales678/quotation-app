@@ -90,55 +90,56 @@ with col1:
     
     if uploaded_doc is not None:
         with st.spinner("Processing Document... Please wait"):
-            import easyocr
-            import numpy as np
+            import pytesseract
             import re
             from PIL import Image
             
-            # PDF அல்லது Image எனச் சரிபார்த்தல்
-            if uploaded_doc.name.lower().endswith(".pdf"):
-                import pypdfium2 as pdfium
-                pdf = pdfium.PdfDocument(uploaded_doc.read())
-                page = pdf[0]
-                image = page.render(scale=2).to_pil()
-            else:
-                image = Image.open(uploaded_doc)
-            
-            reader = easyocr.Reader(['en'])
-            results = reader.readtext(np.array(image), detail=0)
-            
-            # தவிர்க்க வேண்டிய சொற்கள் (Ignore List)
-            ignore_keywords = [
-                "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX DEPARTMENT",
-                "MALE", "FEMALE", "DOB", "DATE OF BIRTH", "YEAR OF BIRTH", "ADDRESS",
-                "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY", "CARD"
-            ]
-            
-            clean_lines = []
-            for text in results:
-                # சிறப்பு குறியீடுகளை நீக்குதல் (Clean symbols)
-                clean_text = re.sub(r'[^a-zA-Z0-9\s,.-]', '', text).strip()
-                upper_text = clean_text.upper()
+            try:
+                # PDF அல்லது Image எனச் சரிபார்த்தல்
+                if uploaded_doc.name.lower().endswith(".pdf"):
+                    import pypdfium2 as pdfium
+                    pdf = pdfium.PdfDocument(uploaded_doc.read())
+                    page = pdf[0]
+                    image = page.render(scale=2).to_pil()
+                else:
+                    image = Image.open(uploaded_doc)
                 
-                skip = False
-                for kw in ignore_keywords:
-                    if kw in upper_text:
-                        skip = True
-                        break
+                # Tesseract OCR மூலம் படிக்கிறது
+                extracted_text = pytesseract.image_to_string(image)
+                lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
                 
-                # வெறும் ஆங்கில எழுத்துக்கள் 4-க்கும் மேல் இருந்தால் மட்டுமே சேர்க்கும்
-                letters_only = re.sub(r'[^a-zA-Z]', '', clean_text)
-                if not skip and len(letters_only) >= 4:
-                    clean_lines.append(clean_text)
-            
-            if clean_lines:
-                default_name = clean_lines[0]
-                if len(clean_lines) > 1:
-                    default_address = ", ".join(clean_lines[1:4])
-                st.success("Document extracted successfully!")
+                # தேவையில்லாத அரசு வார்த்தைகளை தவிர்க்கும் பட்டியல்
+                ignore_keywords = [
+                    "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX DEPARTMENT",
+                    "MALE", "FEMALE", "DOB", "DATE OF BIRTH", "YEAR OF BIRTH", "ADDRESS",
+                    "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY", "CARD", "ENROLLMENT"
+                ]
+                
+                clean_lines = []
+                for line in lines:
+                    clean_text = re.sub(r'[^a-zA-Z0-9\s,.-]', '', line).strip()
+                    upper_text = clean_text.upper()
+                    
+                    skip = False
+                    for kw in ignore_keywords:
+                        if kw in upper_text:
+                            skip = True
+                            break
+                    
+                    letters_only = re.sub(r'[^a-zA-Z]', '', clean_text)
+                    if not skip and len(letters_only) >= 3:
+                        clean_lines.append(clean_text)
+                
+                if clean_lines:
+                    default_name = clean_lines[0]
+                    if len(clean_lines) > 1:
+                        default_address = ", ".join(clean_lines[1:4])
+                    st.success("Document processed!")
+            except Exception as e:
+                st.warning("இமேஜ் படிக்க முடியவில்லை. மேனுவலாக டைப் செய்யவும்.")
 
-    # Name and Address Inputs
-    cust_input = st.text_input("Customer Name", default_name)
+    # Name and Address Inputs (வாடிக்கையாளர் எடிட் செய்ய வசதியாக)
+    cust_input = st.text_input("Customer Name (You can edit)", default_name)
     
     if cust_input:
         salutation = get_salutation(cust_input)
@@ -146,7 +147,7 @@ with col1:
     else:
         customer_name = ""
         
-    customer_address = st.text_area("Customer Address", default_address)
+    customer_address = st.text_area("Customer Address (You can edit)", default_address)
     
     # FSC Name Selection
     fsc_name = st.selectbox("Select FSC Name", list(fsc_details.keys()))
