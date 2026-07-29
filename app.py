@@ -82,13 +82,13 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
-    # Document Upload Option for Auto-Fill
-    uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
+   with col1:
+    # Document Upload Option (Image and PDF Support)
+    uploaded_doc = st.file_uploader("📄 Upload Document (Aadhar/RC/Card)", type=["png", "jpg", "jpeg", "pdf"])
     
     default_name = "SK TRADERS"
     default_address = "100FT RING ROAD, HOSUR"
     
-    # EasyOCR மூலம் இமேஜிலிருந்து தூய்மையான Name & Address எடுக்கும் புது லாஜிக்
     if uploaded_doc is not None:
         with st.spinner("Processing Document... Please wait"):
             import easyocr
@@ -96,8 +96,16 @@ with col1:
             import re
             from PIL import Image
             
+            # PDF அல்லது Image எனச் சரிபார்த்தல்
+            if uploaded_doc.name.lower().endswith(".pdf"):
+                import pypdfium2 as pdfium
+                pdf = pdfium.PdfDocument(uploaded_doc.read())
+                page = pdf[0] # முதல் பக்கத்தை மட்டும் எடுக்கும்
+                image = page.render(scale=2).to_pil()
+            else:
+                image = Image.open(uploaded_doc)
+            
             reader = easyocr.Reader(['en'])
-            image = Image.open(uploaded_doc)
             results = reader.readtext(np.array(image), detail=0)
             
             # தவிர்க்க வேண்டிய சொற்களின் பட்டியல் (Ignore list)
@@ -112,17 +120,21 @@ with col1:
                 raw_text = text.strip()
                 upper_text = raw_text.upper()
                 
-                # தேவை இல்லாத சொற்கள் உள்ளதா எனச் சரிபார்க்கும்
                 skip = False
                 for kw in ignore_keywords:
                     if kw in upper_text:
                         skip = True
                         break
                 
-                # குறைந்தபட்சம் 3 எழுத்துக்கள் மற்றும் தவிர்க்க வேண்டிய சொல் இல்லை என்றால் சேர்க்கும்
-                if not skip and len(re.sub(r'[^a-zA-Z]', '', raw_text)) > 2:
+                letters_only = re.sub(r'[^a-zA-Z]', '', raw_text)
+                if not skip and len(letters_only) >= 4:
                     clean_lines.append(raw_text)
             
+            if clean_lines:
+                default_name = clean_lines[0]
+                if len(clean_lines) > 1:
+                    default_address = ", ".join(clean_lines[1:4])
+                st.success("Document extracted successfully!")
             if clean_lines:
                 # 'GOVERNMENT OF INDIA' தவிர்க்கப்பட்ட பிறகு வரும் முதல் வரியே உண்மையான பெயர்
                 default_name = clean_lines[0]
