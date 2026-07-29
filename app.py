@@ -1,4 +1,4 @@
-VCimport os
+import os
 import pandas as pd
 import streamlit as st
 from docxtpl import DocxTemplate
