@@ -82,14 +82,13 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
- with col1:
     # Document Upload Option for Auto-Fill
     uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
     
     default_name = "SK TRADERS"
     default_address = "100FT RING ROAD, HOSUR"
     
-    # EasyOCR மூலம் இமேஜிலிருந்து தானாக Name & Address எடுக்கும் லாஜிக்
+    # EasyOCR மூலம் இமேஜிலிருந்து தூய்மையான Name & Address எடுக்கும் புது லாஜிக்
     if uploaded_doc is not None:
         with st.spinner("Processing Document... Please wait"):
             import easyocr
@@ -101,19 +100,37 @@ with col1:
             image = Image.open(uploaded_doc)
             results = reader.readtext(np.array(image), detail=0)
             
-            # தேவையில்லாத குப்பை வார்த்தைகளை நீக்குதல்
+            # தவிர்க்க வேண்டிய சொற்களின் பட்டியல் (Ignore list)
+            ignore_keywords = [
+                "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX DEPARTMENT",
+                "MALE", "FEMALE", "DOB", "DATE OF BIRTH", "YEAR OF BIRTH", "ADDRESS",
+                "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY"
+            ]
+            
             clean_lines = []
             for text in results:
-                if len(re.sub(r'[^a-zA-Z]', '', text)) > 3:
-                    clean_lines.append(text.strip())
+                raw_text = text.strip()
+                upper_text = raw_text.upper()
+                
+                # தேவை இல்லாத சொற்கள் உள்ளதா எனச் சரிபார்க்கும்
+                skip = False
+                for kw in ignore_keywords:
+                    if kw in upper_text:
+                        skip = True
+                        break
+                
+                # குறைந்தபட்சம் 3 எழுத்துக்கள் மற்றும் தவிர்க்க வேண்டிய சொல் இல்லை என்றால் சேர்க்கும்
+                if not skip and len(re.sub(r'[^a-zA-Z]', '', raw_text)) > 2:
+                    clean_lines.append(raw_text)
             
             if clean_lines:
+                # 'GOVERNMENT OF INDIA' தவிர்க்கப்பட்ட பிறகு வரும் முதல் வரியே உண்மையான பெயர்
                 default_name = clean_lines[0]
                 if len(clean_lines) > 1:
                     default_address = ", ".join(clean_lines[1:4])
                 st.success("Document extracted successfully!")
 
-    # Name and Address Inputs (இங்கே தான் cust_input வரையறுக்கப்படுகிறது)
+    # Name and Address Inputs
     cust_input = st.text_input("Customer Name", default_name)
     
     if cust_input:
