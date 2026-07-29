@@ -1,4 +1,4 @@
-import os
+VCimport os
 import pandas as pd
 import streamlit as st
 from docxtpl import DocxTemplate
@@ -82,7 +82,7 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
-    # Document Upload Option for Auto-Fill
+   # Document Upload Option for Auto-Fill
     uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
     
     default_name = "SK TRADERS"
@@ -93,21 +93,24 @@ with col1:
         with st.spinner("Processing Document... Please wait"):
             import easyocr
             import numpy as np
+            import re
             from PIL import Image
             
             reader = easyocr.Reader(['en'])
             image = Image.open(uploaded_doc)
             results = reader.readtext(np.array(image), detail=0)
             
-            if results:
-                default_name = results[0]
-                if len(results) > 1:
-                    default_address = ", ".join(results[1:4])
+            # தேவையில்லாத குப்பை வார்த்தைகளை நீக்குதல் (Clean Text Filter)
+            clean_lines = []
+            for text in results:
+                if len(re.sub(r'[^a-zA-Z]', '', text)) > 3:
+                    clean_lines.append(text.strip())
+            
+            if clean_lines:
+                default_name = clean_lines[0]
+                if len(clean_lines) > 1:
+                    default_address = ", ".join(clean_lines[1:4])
                 st.success("Document extracted successfully!")
-
-    # Name and Address Inputs
-    cust_input = st.text_input("Customer Name", default_name)
-    
     if cust_input:
         salutation = get_salutation(cust_input)
         customer_name = f"{salutation} {cust_input.upper()}"
