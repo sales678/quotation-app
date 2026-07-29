@@ -83,9 +83,8 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
-    # 💥 multiple_files=True கொடுத்து ஒரே நேரத்தில் ஒன்றுக்கு மேற்பட்ட படங்கள் / PDF அப்லோட் செய்யும் வசதி
     uploaded_docs = st.file_uploader(
-        "📄 Upload Documents (Aadhaar Front & Back Images / PDF)", 
+        "📄 Upload Documents (Aadhaar Letter / Cards / PDF)", 
         type=["png", "jpg", "jpeg", "pdf"], 
         accept_multiple_files=True
     )
@@ -94,7 +93,7 @@ with col1:
     extracted_address = ""
     
     if uploaded_docs:
-        with st.spinner("Processing Documents... Extracting English Name and Address"):
+        with st.spinner("Processing Document... Extracting accurate Name & Address"):
             import easyocr
             import numpy as np
             from PIL import Image
@@ -105,7 +104,7 @@ with col1:
                 "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX",
                 "DETAILS AS ON", "UNIQUE IDENTIFICATION", "AUTHORITY", "AADHAAR",
                 "PROOF OF IDENTITY", "CITIZENSHIP", "ENROLLMENT", "HELP@UIDAI",
-                "WWW.UIDAI", "1947", "ISSUE DATE"
+                "WWW.UIDAI", "1947", "ISSUE DATE", "YOUR AADHAAR NO", "ENROLLMENT NO"
             ]
             
             for uploaded_doc in uploaded_docs:
@@ -121,24 +120,53 @@ with col1:
                 
                 for img in images_to_process:
                     raw_text_list = reader.readtext(np.array(img), detail=0)
-                    full_text = " \n ".join(raw_text_list)
                     
-                    # --- 1. NAME EXTRACTION (Front Side Detection) ---
+                    # --- TYPE 1: Aadhaar Letter ("To" Block Parser) ---
+                    to_index = -1
+                    for idx, line in enumerate(raw_text_list):
+                        if line.strip().upper() in ["TO", "TO:"]:
+                            to_index = idx
+                            break
+                    
+                    if to_index != -1 and to_index + 1 < len(raw_text_list):
+                        # "To" வார்த்தைக்கு அடுத்த வரியே பெயர்
+                        possible_name = raw_text_list[to_index + 1].strip()
+                        if re.match(r'^[a-zA-Z\s.]+$', possible_name) and len(possible_name) >= 3:
+                            extracted_name = possible_name
+                        
+                        # "To" பிளாக்கிற்கு கீழ் உள்ள அட்ரஸ் வரிகளை சேகரித்தல்
+                        addr_parts = []
+                        for k in range(to_index + 2, len(raw_text_list)):
+                            l_text = raw_text_list[k].strip()
+                            # 12-டிஜிட் ஆதார் எண் அல்லது மொபைல் அல்லது அரசு தலைப்புகள் வந்தாலோ நிறுத்திவிடும்
+                            if any(phrase in l_text.upper() for phrase in ignore_phrases) or re.search(r'\d{4}\s?\d{4}\s?\d{4}', l_text):
+                                break
+                            
+                            # தமிழ் எழுத்துக்கள் தவிர்த்து சுத்தமான வரிகளை மட்டும் சேர்ப்பது
+                            clean_l = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', l_text).strip()
+                            if len(clean_l) > 2 and not clean_l.isdigit():
+                                addr_parts.append(clean_l)
+                        
+                        if addr_parts and not extracted_address:
+                            extracted_address = ", ".join(addr_parts)
+
+                    # --- TYPE 2: Normal Aadhaar Card Front (DOB / Male Based) ---
                     if not extracted_name:
                         for i, line in enumerate(raw_text_list):
                             upper_line = line.upper()
                             if any(k in upper_line for k in ["DOB", "DATE OF BIRTH", "MALE", "FEMALE"]):
                                 for j in range(i - 1, -1, -1):
                                     candidate = raw_text_list[j].strip()
-                                    if re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 4:
+                                    if re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 3:
                                         if not any(ph in candidate.upper() for ph in ignore_phrases):
                                             extracted_name = candidate
                                             break
                                 if extracted_name:
                                     break
 
-                    # --- 2. ADDRESS EXTRACTION (Back Side Detection) ---
+                    # --- TYPE 3: Normal Aadhaar Card Back (Address Block Based) ---
                     if not extracted_address:
+                        full_text = " \n ".join(raw_text_list)
                         if any(k in full_text for k in ["Address", "ADDRESS", "S/O", "C/O"]):
                             match = re.search(r'(?:Address|ADDRESS|S/O|C/O)[:\s]*(.*)', full_text, re.DOTALL)
                             if match:
@@ -151,15 +179,15 @@ with col1:
                                         if len(clean_addr) > 2:
                                             addr_lines.append(clean_addr)
                                 if addr_lines:
-                                    extracted_address = ", ".join(addr_lines[:4])
+                                    extracted_address = ", ".join(addr_lines[:5])
 
-            st.success("Documents processed successfully!")
+            st.success("Document processed successfully!")
 
     # Dynamic Value Assignment
     default_name = extracted_name if extracted_name else ""
     default_address = extracted_address if extracted_address else ""
 
-    # Name and Address Inputs
+    # Customer Name & Address Inputs
     cust_input = st.text_input("Customer Name", default_name)
     
     if cust_input:
@@ -250,7 +278,7 @@ if st.button("🚀 Generate Word & PDF Quotation"):
     template_path = "Quotation_Template.docx"
 
     if not os.path.exists(template_path):
-        st.error("❌ 'Quotation_Template.docx' ஃபைல் ஃபால்டரில் இல்லை!")
+        st.error("❌ 'Quotation_Template.docx' ஃபால்டரில் இல்லை!")
     else:
         doc = DocxTemplate(template_path)
 
