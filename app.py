@@ -82,7 +82,6 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
-   with col1:
     # Document Upload Option (Image and PDF Support)
     uploaded_doc = st.file_uploader("📄 Upload Document (Aadhar/RC/Card)", type=["png", "jpg", "jpeg", "pdf"])
     
@@ -100,7 +99,7 @@ with col1:
             if uploaded_doc.name.lower().endswith(".pdf"):
                 import pypdfium2 as pdfium
                 pdf = pdfium.PdfDocument(uploaded_doc.read())
-                page = pdf[0] # முதல் பக்கத்தை மட்டும் எடுக்கும்
+                page = pdf[0]
                 image = page.render(scale=2).to_pil()
             else:
                 image = Image.open(uploaded_doc)
@@ -108,17 +107,18 @@ with col1:
             reader = easyocr.Reader(['en'])
             results = reader.readtext(np.array(image), detail=0)
             
-            # தவிர்க்க வேண்டிய சொற்களின் பட்டியல் (Ignore list)
+            # தவிர்க்க வேண்டிய சொற்கள் (Ignore List)
             ignore_keywords = [
                 "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX DEPARTMENT",
                 "MALE", "FEMALE", "DOB", "DATE OF BIRTH", "YEAR OF BIRTH", "ADDRESS",
-                "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY"
+                "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY", "CARD"
             ]
             
             clean_lines = []
             for text in results:
-                raw_text = text.strip()
-                upper_text = raw_text.upper()
+                # சிறப்பு குறியீடுகளை நீக்குதல் (Clean symbols)
+                clean_text = re.sub(r'[^a-zA-Z0-9\s,.-]', '', text).strip()
+                upper_text = clean_text.upper()
                 
                 skip = False
                 for kw in ignore_keywords:
@@ -126,17 +126,12 @@ with col1:
                         skip = True
                         break
                 
-                letters_only = re.sub(r'[^a-zA-Z]', '', raw_text)
+                # வெறும் ஆங்கில எழுத்துக்கள் 4-க்கும் மேல் இருந்தால் மட்டுமே சேர்க்கும்
+                letters_only = re.sub(r'[^a-zA-Z]', '', clean_text)
                 if not skip and len(letters_only) >= 4:
-                    clean_lines.append(raw_text)
+                    clean_lines.append(clean_text)
             
             if clean_lines:
-                default_name = clean_lines[0]
-                if len(clean_lines) > 1:
-                    default_address = ", ".join(clean_lines[1:4])
-                st.success("Document extracted successfully!")
-            if clean_lines:
-                # 'GOVERNMENT OF INDIA' தவிர்க்கப்பட்ட பிறகு வரும் முதல் வரியே உண்மையான பெயர்
                 default_name = clean_lines[0]
                 if len(clean_lines) > 1:
                     default_address = ", ".join(clean_lines[1:4])
