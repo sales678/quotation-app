@@ -3,7 +3,6 @@ pandas
 openpyxl
 docxtpl
 python-docx
-easyocr
-opencv-python-headless
+pytesseract
 pypdfium2
 Pillow
