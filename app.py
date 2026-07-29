@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import streamlit as st
+from docxtpl import DocxTemplate
 
 def get_salutation(name):
     name_upper = name.upper()
@@ -17,6 +18,7 @@ def get_salutation(name):
     
     # ஆண்கள் (Default Male)
     return "MR."
+
 st.set_page_config(page_title="Auto Vehicle Quotation Generator", layout="wide")
 st.title("🚗 Auto Vehicle Quotation Generator")
 
@@ -66,7 +68,6 @@ bank_options = [
 ]
 
 # --- 4. VARIANT / MODEL COLUMN FINDER ---
-# எக்செல்-ல Variant அல்லது Model Column-ஐ தானாக கண்டுபிடிக்கிறது
 variant_column = None
 for col in df.columns:
     col_str = str(col).upper()
@@ -74,51 +75,46 @@ for col in df.columns:
         variant_column = col
         break
 
-# ஒருவேளை கண்டுபிடிக்க முடியாவிட்டால் 1-வது காலமை எடுத்துக்கொள்ளும்
 if not variant_column:
     variant_column = df.columns[0]
 
 # --- 5. INPUT FIELDS ---
 col1, col2 = st.columns(2)
-# Document Upload Option for Auto-Fill
-        uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
-        
-        default_name = "SK TRADERS"
-        default_address = "100FT RING ROAD, HOSUR"
-        
-        # EasyOCR மூலம் இமேஜிலிருந்து தானாக Name & Address எடுக்கும் லாஜிக்
-        if uploaded_doc is not None:
-            with st.spinner("Processing Document... Please wait"):
-                import easyocr
-                import numpy as np
-                from PIL import Image
-                
-                reader = easyocr.Reader(['en'])
-                image = Image.open(uploaded_doc)
-                results = reader.readtext(np.array(image), detail=0)
-                
-                if results:
-                    default_name = results[0]
-                    if len(results) > 1:
-                        default_address = ", ".join(results[1:4])
-                    st.success("Document extracted successfully!")
 
-        # Name and Address Inputs
-        cust_input = st.text_input("Customer Name", default_name)
+with col1:
+    # Document Upload Option for Auto-Fill
+    uploaded_doc = st.file_uploader("📄 Upload Image (Aadhar/RC/Card)", type=["png", "jpg", "jpeg"])
+    
+    default_name = "SK TRADERS"
+    default_address = "100FT RING ROAD, HOSUR"
+    
+    # EasyOCR மூலம் இமேஜிலிருந்து தானாக Name & Address எடுக்கும் லாஜிக்
+    if uploaded_doc is not None:
+        with st.spinner("Processing Document... Please wait"):
+            import easyocr
+            import numpy as np
+            from PIL import Image
+            
+            reader = easyocr.Reader(['en'])
+            image = Image.open(uploaded_doc)
+            results = reader.readtext(np.array(image), detail=0)
+            
+            if results:
+                default_name = results[0]
+                if len(results) > 1:
+                    default_address = ", ".join(results[1:4])
+                st.success("Document extracted successfully!")
+
+    # Name and Address Inputs
+    cust_input = st.text_input("Customer Name", default_name)
+    
+    if cust_input:
+        salutation = get_salutation(cust_input)
+        customer_name = f"{salutation} {cust_input.upper()}"
+    else:
+        customer_name = ""
         
-        if cust_input:
-            salutation = get_salutation(cust_input)
-            customer_name = f"{salutation} {cust_input.upper()}"
-        else:
-            customer_name = ""
-            
-        customer_address = st.text_area("Customer Address", default_address)
-            salutation = get_salutation(cust_input)
-            customer_name = f"{salutation} {cust_input.upper()}"
-        else:
-            customer_name = ""
-            
-        customer_address = st.text_area("Customer Address", default_address)
+    customer_address = st.text_area("Customer Address", default_address)
     
     # FSC Name Selection
     fsc_name = st.selectbox("Select FSC Name", list(fsc_details.keys()))
