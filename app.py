@@ -116,6 +116,14 @@ col1, col2 = st.columns(2)
             customer_name = ""
             
         customer_address = st.text_area("Customer Address", default_address)
+        
+        if cust_input:
+            salutation = get_salutation(cust_input)
+            customer_name = f"{salutation} {cust_input.upper()}"
+        else:
+            customer_name = ""
+            
+        customer_address = st.text_area("Customer Address", default_address)
     
     # FSC Name Selection
     fsc_name = st.selectbox("Select FSC Name", list(fsc_details.keys()))
