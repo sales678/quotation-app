@@ -83,29 +83,24 @@ if not variant_column:
 col1, col2 = st.columns(2)
 
 with col1:
-    uploaded_doc = st.file_uploader("📄 Upload Document (Aadhar Front/Back Card)", type=["png", "jpg", "jpeg", "pdf"])
+    # 💥 multiple_files=True கொடுத்து ஒரே நேரத்தில் ஒன்றுக்கு மேற்பட்ட படங்கள் / PDF அப்லோட் செய்யும் வசதி
+    uploaded_docs = st.file_uploader(
+        "📄 Upload Documents (Aadhaar Front & Back Images / PDF)", 
+        type=["png", "jpg", "jpeg", "pdf"], 
+        accept_multiple_files=True
+    )
     
     extracted_name = ""
     extracted_address = ""
     
-    if uploaded_doc is not None:
-        with st.spinner("Processing Document... Extracting accurate details"):
+    if uploaded_docs:
+        with st.spinner("Processing Documents... Extracting English Name and Address"):
             import easyocr
             import numpy as np
             from PIL import Image
             
-            if uploaded_doc.name.lower().endswith(".pdf"):
-                import pypdfium2 as pdfium
-                pdf = pdfium.PdfDocument(uploaded_doc.read())
-                page = pdf[0]
-                image = page.render(scale=2).to_pil()
-            else:
-                image = Image.open(uploaded_doc)
-            
             reader = easyocr.Reader(['en'])
-            raw_text_list = reader.readtext(np.array(image), detail=0)
             
-            # 1. தேவையில்லாத வாக்கியங்களை வடிகட்டுதல் (Noise Filter)
             ignore_phrases = [
                 "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX",
                 "DETAILS AS ON", "UNIQUE IDENTIFICATION", "AUTHORITY", "AADHAAR",
@@ -113,56 +108,58 @@ with col1:
                 "WWW.UIDAI", "1947", "ISSUE DATE"
             ]
             
-            filtered_lines = []
-            for line in raw_text_list:
-                clean_l = line.strip()
-                upper_l = clean_l.upper()
+            for uploaded_doc in uploaded_docs:
+                images_to_process = []
                 
-                # எண்கள் / 12-digit எண்கள் மற்றும் அரசு தலைப்புகளைத் தவிர்க்கிறது
-                if not any(phrase in upper_l for phrase in ignore_phrases) and not re.search(r'\d{4}\s?\d{4}\s?\d{4}', clean_l):
-                    filtered_lines.append(clean_l)
-            
-            # 2. NAME EXTRACTION (Aadhaar Front Side)
-            # DOB அல்லது MALE/FEMALE வரிக்கு மேலே உள்ள வரியை பெயர் என கண்டறியும்
-            for i, line in enumerate(raw_text_list):
-                upper_line = line.upper()
-                if "DOB" in upper_line or "DATE OF BIRTH" in upper_line or "MALE" in upper_line or "FEMALE" in upper_line:
-                    # அதற்கு முந்தைய வரிகளில் ஆங்கில எழுத்துக்கள் மட்டும் உள்ள வரியைத் தேடும்
-                    for j in range(i - 1, -1, -1):
-                        possible_candidate = raw_text_list[j].strip()
-                        # தமிழ் OCR தவறுகளைத் தவிர்க்க (ஆங்கில எழுத்துக்கள் மற்றும் இடைவெளி மட்டும்)
-                        if re.match(r'^[a-zA-Z\s.]+$', possible_candidate) and len(possible_candidate) >= 4:
-                            candidate_upper = possible_candidate.upper()
-                            if not any(ph in candidate_upper for ph in ignore_phrases):
-                                extracted_name = possible_candidate
-                                break
-                    if extracted_name:
-                        break
-            
-            # 3. ADDRESS EXTRACTION (Aadhaar Back Side)
-            full_text = "\n".join(raw_text_list)
-            if "Address" in full_text or "ADDRESS" in full_text or "S/O" in full_text or "C/O" in full_text:
-                match = re.search(r'(?:Address|ADDRESS|S/O|C/O)[:\s]*(.*)', full_text, re.DOTALL)
-                if match:
-                    addr_block = match.group(1)
-                    addr_lines = []
-                    for line in addr_block.split('\n'):
-                        line_str = line.strip()
-                        # தேவையற்ற எண்கள்/தகவல்களை நீக்குதல்
-                        if not re.search(r'(\d{4}\s?\d{4}\s?\d{4}|VID|help@uidai|www|1947|Details as on)', line_str, re.IGNORECASE):
-                            clean_addr_line = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', line_str).strip()
-                            if len(clean_addr_line) > 2:
-                                addr_lines.append(clean_addr_line)
-                    if addr_lines:
-                        extracted_address = ", ".join(addr_lines[:4])
+                if uploaded_doc.name.lower().endswith(".pdf"):
+                    import pypdfium2 as pdfium
+                    pdf = pdfium.PdfDocument(uploaded_doc.read())
+                    for p in pdf:
+                        images_to_process.append(p.render(scale=2).to_pil())
+                else:
+                    images_to_process.append(Image.open(uploaded_doc))
+                
+                for img in images_to_process:
+                    raw_text_list = reader.readtext(np.array(img), detail=0)
+                    full_text = " \n ".join(raw_text_list)
+                    
+                    # --- 1. NAME EXTRACTION (Front Side Detection) ---
+                    if not extracted_name:
+                        for i, line in enumerate(raw_text_list):
+                            upper_line = line.upper()
+                            if any(k in upper_line for k in ["DOB", "DATE OF BIRTH", "MALE", "FEMALE"]):
+                                for j in range(i - 1, -1, -1):
+                                    candidate = raw_text_list[j].strip()
+                                    if re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 4:
+                                        if not any(ph in candidate.upper() for ph in ignore_phrases):
+                                            extracted_name = candidate
+                                            break
+                                if extracted_name:
+                                    break
 
-            st.success("Document extracted successfully!")
+                    # --- 2. ADDRESS EXTRACTION (Back Side Detection) ---
+                    if not extracted_address:
+                        if any(k in full_text for k in ["Address", "ADDRESS", "S/O", "C/O"]):
+                            match = re.search(r'(?:Address|ADDRESS|S/O|C/O)[:\s]*(.*)', full_text, re.DOTALL)
+                            if match:
+                                addr_block = match.group(1)
+                                addr_lines = []
+                                for line in addr_block.split('\n'):
+                                    line_str = line.strip()
+                                    if not re.search(r'(\d{4}\s?\d{4}\s?\d{4}|VID|help@uidai|www|1947|Details as on)', line_str, re.IGNORECASE):
+                                        clean_addr = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', line_str).strip()
+                                        if len(clean_addr) > 2:
+                                            addr_lines.append(clean_addr)
+                                if addr_lines:
+                                    extracted_address = ", ".join(addr_lines[:4])
 
-    # Dynamic Value Assignment (Fallback Default values if image fails)
+            st.success("Documents processed successfully!")
+
+    # Dynamic Value Assignment
     default_name = extracted_name if extracted_name else ""
     default_address = extracted_address if extracted_address else ""
 
-    # Name and Address Inputs (Manual edit support)
+    # Name and Address Inputs
     cust_input = st.text_input("Customer Name", default_name)
     
     if cust_input:
