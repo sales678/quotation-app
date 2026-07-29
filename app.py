@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 from docxtpl import DocxTemplate
+import re
 
 def get_salutation(name):
     name_upper = name.upper()
@@ -83,63 +84,85 @@ col1, col2 = st.columns(2)
 
 with col1:
     # Document Upload Option (Image and PDF Support)
-    uploaded_doc = st.file_uploader("📄 Upload Document (Aadhar/RC/Card)", type=["png", "jpg", "jpeg", "pdf"])
+    uploaded_doc = st.file_uploader("📄 Upload Document (Aadhar Front/Back Card)", type=["png", "jpg", "jpeg", "pdf"])
     
-    default_name = "SK TRADERS"
-    default_address = "100FT RING ROAD, HOSUR"
+    extracted_name = ""
+    extracted_address = ""
     
     if uploaded_doc is not None:
-        with st.spinner("Processing Document... Please wait"):
-            import pytesseract
-            import re
+        with st.spinner("Processing Document... Processing English Text Only"):
+            import easyocr
+            import numpy as np
             from PIL import Image
             
-            try:
-                # PDF அல்லது Image எனச் சரிபார்த்தல்
-                if uploaded_doc.name.lower().endswith(".pdf"):
-                    import pypdfium2 as pdfium
-                    pdf = pdfium.PdfDocument(uploaded_doc.read())
-                    page = pdf[0]
-                    image = page.render(scale=2).to_pil()
-                else:
-                    image = Image.open(uploaded_doc)
-                
-                # Tesseract OCR மூலம் படிக்கிறது
-                extracted_text = pytesseract.image_to_string(image)
-                lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
-                
-                # தேவையில்லாத அரசு வார்த்தைகளை தவிர்க்கும் பட்டியல்
-                ignore_keywords = [
-                    "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX DEPARTMENT",
-                    "MALE", "FEMALE", "DOB", "DATE OF BIRTH", "YEAR OF BIRTH", "ADDRESS",
-                    "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY", "CARD", "ENROLLMENT"
-                ]
-                
-                clean_lines = []
-                for line in lines:
-                    clean_text = re.sub(r'[^a-zA-Z0-9\s,.-]', '', line).strip()
-                    upper_text = clean_text.upper()
+            # PDF அல்லது Image எனச் சரிபார்த்தல்
+            if uploaded_doc.name.lower().endswith(".pdf"):
+                import pypdfium2 as pdfium
+                pdf = pdfium.PdfDocument(uploaded_doc.read())
+                page = pdf[0]
+                image = page.render(scale=2).to_pil()
+            else:
+                image = Image.open(uploaded_doc)
+            
+            # EasyOCR - Read English lines only
+            reader = easyocr.Reader(['en'])
+            raw_text_list = reader.readtext(np.array(image), detail=0)
+            full_text = " \n ".join(raw_text_list)
+            
+            # --- 1. ENGLISH ADDRESS EXTRACTION (Aadhaar Back side) ---
+            if "Address" in full_text or "ADDRESS" in full_text:
+                # "Address:" அல்லது "ADDRESS:" என்ற வார்த்தைக்குப் பின் வரும் வரிகளை மட்டும் எடுக்கும்
+                match = re.search(r'(?:Address|ADDRESS)[:\s]*(.*)', full_text, re.DOTALL)
+                if match:
+                    addr_block = match.group(1)
+                    # தேவையில்லாத வாக்கியங்கள் / எண்களை நீக்குதல்
+                    addr_clean_lines = []
+                    for line in addr_block.split('\n'):
+                        line_str = line.strip()
+                        # ஆதார் எண்கள், வெப்சைட், ஹெல்ப்லைன் தவிர்த்து முகவரி வரிகளை சேர்க்கும்
+                        if not re.search(r'(\d{4}\s?\d{4}\s?\d{4}|VID|help@uidai|www|1947|Details as on)', line_str, re.IGNORECASE):
+                            clean_l = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', line_str).strip()
+                            if len(clean_l) > 2:
+                                addr_clean_lines.append(clean_l)
                     
-                    skip = False
-                    for kw in ignore_keywords:
-                        if kw in upper_text:
-                            skip = True
-                            break
-                    
-                    letters_only = re.sub(r'[^a-zA-Z]', '', clean_text)
-                    if not skip and len(letters_only) >= 3:
-                        clean_lines.append(clean_text)
+                    extracted_address = ", ".join(addr_clean_lines[:4])
+            
+            # --- 2. ENGLISH NAME EXTRACTION (Aadhaar Front side) ---
+            # தவிர்க்கப்பட வேண்டிய அரசு தலைப்புகள்
+            ignore_headers = [
+                "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX DEPARTMENT",
+                "MALE", "FEMALE", "DOB", "DATE OF BIRTH", "YEAR OF BIRTH", "ADDRESS",
+                "FATHER", "NAME", "UNIQUE IDENTIFICATION", "AUTHORITY", "CARD", "ENROLLMENT",
+                "AADHAAR IS PROOF", "PROOF OF IDENTITY", "CITIZENSHIP"
+            ]
+            
+            possible_names = []
+            for line in raw_text_list:
+                clean_line = re.sub(r'[^a-zA-Z\s]', '', line).strip()
+                upper_line = clean_line.upper()
                 
-                if clean_lines:
-                    default_name = clean_lines[0]
-                    if len(clean_lines) > 1:
-                        default_address = ", ".join(clean_lines[1:4])
-                    st.success("Document processed!")
-            except Exception as e:
-                st.warning("இமேஜ் படிக்க முடியவில்லை. மேனுவலாக டைப் செய்யவும்.")
+                # தமிழ் எழுத்துக்களாலோ அல்லது அரசு வாக்கியங்களாலோ இல்லாமல் தூய ஆங்கிலப் பெயராக இருக்கிறதா எனச் சரிபார்த்தல்
+                if len(clean_line) >= 4 and not any(kw in upper_line for kw in ignore_headers):
+                    # வெறும் ஆங்கில வார்த்தைகள் மட்டுமே கொண்ட வரிகளை பெயர் பட்டியலில் சேர்
+                    words = clean_line.split()
+                    if all(len(w) >= 2 for w in words):
+                        possible_names.append(clean_line)
+            
+            if possible_names and not extracted_address:
+                # முகவரி இல்லாத பட்சத்தில் முதல் சுத்தமான ஆங்கில வரியைப் பெயராக எடுக்கும்
+                extracted_name = possible_names[0]
+            elif possible_names and extracted_address:
+                # முகவரி இருக்கும் பட்சத்தில் பெயருக்கு வாய்ப்புள்ள வரிகளைச் சரிபார்க்கும்
+                extracted_name = possible_names[0]
 
-    # Name and Address Inputs (வாடிக்கையாளர் எடிட் செய்ய வசதியாக)
-    cust_input = st.text_input("Customer Name (You can edit)", default_name)
+            st.success("Document extracted successfully!")
+
+    # Dynamic Value Assignment
+    default_name = extracted_name if extracted_name else "KRISHNAMOORTHI MARIMUTHU"
+    default_address = extracted_address if extracted_address else "S/O: Marimuthu, 92 C 22, EAST KAVERI NAGAR, EDAPPADI ROAD, Kumarapalayam, PO: Kumarapalayam, DIST: Namakkal, Tamil Nadu - 638183"
+
+    # Name and Address Inputs
+    cust_input = st.text_input("Customer Name (Edit if needed)", default_name)
     
     if cust_input:
         salutation = get_salutation(cust_input)
@@ -147,7 +170,7 @@ with col1:
     else:
         customer_name = ""
         
-    customer_address = st.text_area("Customer Address (You can edit)", default_address)
+    customer_address = st.text_area("Customer Address (Edit if needed)", default_address)
     
     # FSC Name Selection
     fsc_name = st.selectbox("Select FSC Name", list(fsc_details.keys()))
