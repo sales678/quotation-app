@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 import re
+import copy
 from PIL import Image
 
 def get_salutation(name):
@@ -321,17 +322,26 @@ if st.button("🚀 Generate Word & PDF Quotation"):
                         cell.text = cell.text.replace("{{ total_cost }}", formatted_total)
 
             # Check if table has at least 3 rows
-            if len(table.rows) >= 3:
-                # Row Index 1 is middle row
-                for idx, item in enumerate(items_data):
-                    if idx == 0:
-                        row_cells = table.rows[1].cells
-                    else:
-                        row_cells = table.add_row().cells
-                        table._tbl.append(table.rows[2]._tr)
+            if len(table.rows) >= 3 and items_data:
+                # Target the middle data row XML
+                template_tr = table.rows[1]._tr
 
-                    row_cells[0].text = item["particulars"]
-                    row_cells[1].text = item["price"]
+                # Fill first item in Row 1
+                table.rows[1].cells[0].text = items_data[0]["particulars"]
+                table.rows[1].cells[1].text = items_data[0]["price"]
+
+                # Clone Row 1 for remaining items (Preserves Border & Style perfectly)
+                for item in items_data[1:]:
+                    new_tr = copy.deepcopy(template_tr)
+                    table._tbl.insert_tr_before(new_tr, table.rows[-1]._tr)
+
+                    # Get cells of new XML row
+                    cells = new_tr.xpath('.//w:tc')
+                    if len(cells) >= 2:
+                        p0 = cells[0].xpath('.//w:p')[0]
+                        p0.text = item["particulars"]
+                        p1 = cells[1].xpath('.//w:p')[0]
+                        p1.text = item["price"]
 
         word_filename = f"Quotation_{customer_name}.docx"
         pdf_filename = f"Quotation_{customer_name}.pdf"
