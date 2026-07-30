@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 import streamlit as st
-from docxtpl import DocxTemplate
 import re
 from PIL import Image
 
@@ -94,18 +93,21 @@ with col1:
     extracted_address = ""
     
     if uploaded_docs:
-        with st.spinner("Processing Document... Extracting details"):
+        with st.spinner("Processing Document... Reading Text"):
             try:
-                import pytesseract
+                import easyocr
+                import numpy as np
+                
+                reader = easyocr.Reader(['en'])
                 
                 ignore_phrases = [
                     "GOVERNMENT OF INDIA", "GOVERNMENT", "INDIA", "INCOME TAX",
                     "DETAILS AS ON", "UNIQUE IDENTIFICATION", "AUTHORITY", "AADHAAR",
                     "PROOF OF IDENTITY", "CITIZENSHIP", "ENROLLMENT", "HELP@UIDAI",
-                    "WWW.UIDAI", "1947", "ISSUE DATE", "YOUR AADHAAR NO", "ENROLLMENT NO", "MALE", "FEMALE"
+                    "WWW.UIDAI", "1947", "ISSUE DATE", "YOUR AADHAAR NO", "ENROLLMENT NO"
                 ]
                 
-                all_text_lines = []
+                raw_text_list = []
                 
                 for uploaded_doc in uploaded_docs:
                     images_to_process = []
@@ -119,76 +121,77 @@ with col1:
                         images_to_process.append(Image.open(uploaded_doc))
                     
                     for img in images_to_process:
-                        # Tesseract OCR மூலம் உரையை எடுப்பது
-                        raw_text = pytesseract.image_to_string(img, lang='eng')
-                        for line in raw_text.split('\n'):
+                        ocr_results = reader.readtext(np.array(img), detail=0)
+                        for line in ocr_results:
                             if line.strip():
-                                all_text_lines.append(line.strip())
+                                raw_text_list.append(line.strip())
                 
-                # --- TYPE 1: "To" Block Parser (Letter Format) ---
-                for idx, line in enumerate(all_text_lines):
-                    clean_line = line.strip().upper()
-                    if clean_line in ["TO", "TO:"] or clean_line.startswith("TO "):
-                        # "To" வார்த்தைக்குப் பின்வரும் வரிகளை ஆராய்கிறது
-                        for k in range(idx + 1, min(idx + 8, len(all_text_lines))):
-                            candidate = all_text_lines[k].strip()
-                            candidate_upper = candidate.upper()
-                            
-                            # பெயரைக் கண்டறிதல்
-                            if not extracted_name and re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 3:
-                                if not any(ph in candidate_upper for ph in ignore_phrases):
-                                    extracted_name = candidate
-                                    continue
-                            
-                            # முகவரியைக் கண்டறிதல் (S/O, NO, VTC, District போன்றவை வந்தாலோ)
-                            if any(w in candidate_upper for w in ["S/O", "D/O", "W/O", "C/O", "NO", "NAGAR", "STREET", "ROAD", "VTC", "DISTRICT", "STATE", "PIN"]):
-                                addr_lines = []
-                                for m in range(k, min(k + 6, len(all_text_lines))):
-                                    a_text = all_text_lines[m].strip()
-                                    if any(ph in a_text.upper() for ph in ignore_phrases) or re.search(r'\d{4}\s?\d{4}\s?\d{4}', a_text):
-                                        break
-                                    clean_a = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', a_text).strip()
-                                    if len(clean_a) > 2:
-                                        addr_lines.append(clean_a)
-                                if addr_lines and not extracted_address:
-                                    extracted_address = ", ".join(addr_lines)
-                                    break
+                # --- AADHAAR LETTER EXTRACTION (To / S/O Based) ---
+                so_index = -1
+                for idx, line in enumerate(raw_text_list):
+                    l_upper = line.upper()
+                    if any(k in l_upper for k in ["S/O", "D/O", "W/O", "C/O"]):
+                        so_index = idx
+                        break
                 
-                # --- TYPE 2: Normal Card Name Parser ---
+                if so_index != -1:
+                    for j in range(so_index - 1, -1, -1):
+                        cand = raw_text_list[j].strip()
+                        if re.match(r'^[a-zA-Z\s.]+$', cand) and len(cand) >= 3:
+                            if not any(ph in cand.upper() for ph in ignore_phrases) and cand.upper() not in ["TO", "TO:"]:
+                                extracted_name = cand
+                                break
+                    
+                    addr_lines = []
+                    for k in range(so_index, len(raw_text_list)):
+                        l_text = raw_text_list[k].strip()
+                        l_upper = l_text.upper()
+                        
+                        if any(ph in l_upper for ph in ignore_phrases) or re.search(r'\d{4}\s?\d{4}\s?\d{4}', l_text) or "MOBILE" in l_upper:
+                            break
+                        
+                        clean_line = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', l_text).strip()
+                        if len(clean_line) > 2 and not clean_line.isdigit():
+                            addr_lines.append(clean_line)
+                    
+                    if addr_lines:
+                        extracted_address = ", ".join(addr_lines)
+
+                # --- CARD PARSER FALLBACK (DOB / Male Based Name) ---
                 if not extracted_name:
-                    for i, line in enumerate(all_text_lines):
+                    for i, line in enumerate(raw_text_list):
                         upper_line = line.upper()
                         if any(k in upper_line for k in ["DOB", "DATE OF BIRTH", "MALE", "FEMALE"]):
                             for j in range(i - 1, -1, -1):
-                                candidate = all_text_lines[j].strip()
+                                candidate = raw_text_list[j].strip()
                                 if re.match(r'^[a-zA-Z\s.]+$', candidate) and len(candidate) >= 3:
                                     if not any(ph in candidate.upper() for ph in ignore_phrases):
                                         extracted_name = candidate
                                         break
                             if extracted_name:
                                 break
-                
-                # --- TYPE 3: Normal Card Address Parser ---
+
+                # --- CARD PARSER FALLBACK (Address Block) ---
                 if not extracted_address:
-                    full_text = " \n ".join(all_text_lines)
-                    if any(k in full_text for k in ["Address", "ADDRESS", "S/O", "C/O"]):
-                        match = re.search(r'(?:Address|ADDRESS|S/O|C/O)[:\s]*(.*)', full_text, re.DOTALL)
+                    full_text = " \n ".join(raw_text_list)
+                    if "Address" in full_text or "ADDRESS" in full_text:
+                        match = re.search(r'(?:Address|ADDRESS)[:\s]*(.*)', full_text, re.DOTALL)
                         if match:
                             addr_block = match.group(1)
-                            addr_lines = []
+                            a_lines = []
                             for line in addr_block.split('\n'):
                                 line_str = line.strip()
                                 if not re.search(r'(\d{4}\s?\d{4}\s?\d{4}|VID|help@uidai|www|1947|Details as on)', line_str, re.IGNORECASE):
                                     clean_addr = re.sub(r'[^a-zA-Z0-9\s,./:-]', '', line_str).strip()
                                     if len(clean_addr) > 2:
-                                        addr_lines.append(clean_addr)
-                            if addr_lines:
-                                extracted_address = ", ".join(addr_lines[:5])
+                                        a_lines.append(clean_addr)
+                            if a_lines:
+                                extracted_address = ", ".join(a_lines[:5])
                 
                 st.success("Document processed successfully!")
                 
             except Exception as e:
-                st.error(f"⚠️ Document Extract செய்யும்போது பிழை ஏற்பட்டது: {e}")
+                st.error(f"⚠️ Document எக்ஸ்ட்ராக்ட் செய்வதில் பிழை: {e}")
 
     # Dynamic Value Assignment
     default_name = extracted_name if extracted_name else ""
@@ -287,29 +290,56 @@ if st.button("🚀 Generate Word & PDF Quotation"):
     if not os.path.exists(template_path):
         st.error("❌ 'Quotation_Template.docx' ஃபால்டரில் இல்லை!")
     else:
-        doc = DocxTemplate(template_path)
+        from docx import Document
 
-        context = {
-            "date": pd.Timestamp.now().strftime("%d-%m-%Y"),
-            "customer_name": customer_name,
-            "customer_address": customer_address,
-            "fsc_name": fsc_name,
-            "fsc_code": fsc_code,
-            "vehicle_variant": selected_variant,
-            "bank_name": bank_name,
-            "items": items_data,
-            "total_cost": formatted_total
+        doc = Document(template_path)
+
+        # 1. Text Replacements
+        replacements = {
+            "{{ date }}": pd.Timestamp.now().strftime("%d-%m-%Y"),
+            "{{ customer_name }}": customer_name,
+            "{{ customer_address }}": customer_address,
+            "{{ fsc_name }}": fsc_name,
+            "{{ fsc_code }}": fsc_code,
+            "{{ bank_name }}": bank_name
         }
+
+        # Replace text in Paragraphs
+        for p in doc.paragraphs:
+            for key, val in replacements.items():
+                if key in p.text:
+                    p.text = p.text.replace(key, str(val))
+
+        # Replace & Dynamically Build Table Rows
+        for table in doc.tables:
+            # Replace Header & Footer Placeholders
+            for row in table.rows:
+                for cell in row.cells:
+                    if "{{ vehicle_variant }}" in cell.text:
+                        cell.text = cell.text.replace("{{ vehicle_variant }}", selected_variant)
+                    if "{{ total_cost }}" in cell.text:
+                        cell.text = cell.text.replace("{{ total_cost }}", formatted_total)
+
+            # Check if table has at least 3 rows
+            if len(table.rows) >= 3:
+                # Row Index 1 is middle row
+                for idx, item in enumerate(items_data):
+                    if idx == 0:
+                        row_cells = table.rows[1].cells
+                    else:
+                        row_cells = table.add_row().cells
+                        table._tbl.append(table.rows[2]._tr)
+
+                    row_cells[0].text = item["particulars"]
+                    row_cells[1].text = item["price"]
 
         word_filename = f"Quotation_{customer_name}.docx"
         pdf_filename = f"Quotation_{customer_name}.pdf"
 
-        doc.render(context)
         doc.save(word_filename)
 
         # PDF Conversion
         pdf_ready = False
-        
         try:
             from docx2pdf import convert
             convert(word_filename, pdf_filename)
@@ -323,7 +353,7 @@ if st.button("🚀 Generate Word & PDF Quotation"):
                 pdf_path = os.path.abspath(pdf_filename)
 
                 doc_pdf = word.Documents.Open(doc_path)
-                doc_pdf.SaveAs(pdf_path, FileFormat=17) # 17 = PDF
+                doc_pdf.SaveAs(pdf_path, FileFormat=17)
                 doc_pdf.Close()
                 word.Quit()
                 pdf_ready = True
@@ -333,7 +363,6 @@ if st.button("🚀 Generate Word & PDF Quotation"):
         st.success("🎉 Quotation வெற்றிகரமாக உருவாக்கப்பட்டது!")
 
         c1, c2 = st.columns(2)
-        
         with c1:
             with open(word_filename, "rb") as f_word:
                 st.download_button(
