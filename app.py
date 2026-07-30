@@ -292,8 +292,7 @@ if st.button("🚀 Generate Word & PDF Quotation"):
         st.error("❌ 'Quotation_Template.docx' ஃபால்டரில் இல்லை!")
     else:
         from docx import Document
-        from docx.oxml import parse_xml
-        from docx.oxml.ns import nsdecls
+        from docx.table import _Row
 
         doc = Document(template_path)
 
@@ -307,7 +306,7 @@ if st.button("🚀 Generate Word & PDF Quotation"):
             "{{ bank_name }}": bank_name
         }
 
-        # Replace text in Paragraphs
+        # Replace text in Paragraphs & remove extra paragraph spacing
         for p in doc.paragraphs:
             for key, val in replacements.items():
                 if key in p.text:
@@ -323,28 +322,30 @@ if st.button("🚀 Generate Word & PDF Quotation"):
                     if "{{ total_cost }}" in cell.text:
                         cell.text = cell.text.replace("{{ total_cost }}", formatted_total)
 
-            # Check if table has at least 3 rows
+            # Compact Row Building
             if len(table.rows) >= 3 and items_data:
-                # Target row 1 XML element and Last row
                 template_tr = table.rows[1]._tr
                 last_tr = table.rows[-1]._tr
 
-                # Fill first item in Row 1
+                # First item
                 table.rows[1].cells[0].text = items_data[0]["particulars"]
                 table.rows[1].cells[1].text = items_data[0]["price"]
 
-                # Clone Row 1 for remaining items safely
+                # Clone for other items
                 for item in items_data[1:]:
                     new_tr = copy.deepcopy(template_tr)
                     last_tr.addprevious(new_tr)
                     
-                    # Convert XML element back to python-docx Row Object
-                    from docx.table import _Row
                     new_row = _Row(new_tr, table)
-                    
-                    # Insert text through python-docx Cells (No AttributeError)
                     new_row.cells[0].text = item["particulars"]
                     new_row.cells[1].text = item["price"]
+
+                # Reduce Cell Spacing/Padding inside Table to save space
+                for row in table.rows:
+                    for cell in row.cells:
+                        for p in cell.paragraphs:
+                            p.paragraph_format.space_before = 0
+                            p.paragraph_format.space_after = 0
 
         word_filename = f"Quotation_{customer_name}.docx"
         pdf_filename = f"Quotation_{customer_name}.pdf"
