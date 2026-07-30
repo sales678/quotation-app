@@ -323,17 +323,18 @@ if st.button("🚀 Generate Word & PDF Quotation"):
 
             # Check if table has at least 3 rows
             if len(table.rows) >= 3 and items_data:
-                # Target the middle data row XML
+                # Target row 1 XML element
                 template_tr = table.rows[1]._tr
+                last_tr = table.rows[-1]._tr
 
                 # Fill first item in Row 1
                 table.rows[1].cells[0].text = items_data[0]["particulars"]
                 table.rows[1].cells[1].text = items_data[0]["price"]
 
-                # Clone Row 1 for remaining items (Preserves Border & Style perfectly)
+                # Clone Row 1 for remaining items (Safe XML insertion)
                 for item in items_data[1:]:
                     new_tr = copy.deepcopy(template_tr)
-                    table._tbl.insert_tr_before(new_tr, table.rows[-1]._tr)
+                    last_tr.addprevious(new_tr)
 
                     # Get cells of new XML row
                     cells = new_tr.xpath('.//w:tc')
