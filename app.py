@@ -292,6 +292,8 @@ if st.button("🚀 Generate Word & PDF Quotation"):
         st.error("❌ 'Quotation_Template.docx' ஃபால்டரில் இல்லை!")
     else:
         from docx import Document
+        from docx.oxml import parse_xml
+        from docx.oxml.ns import nsdecls
 
         doc = Document(template_path)
 
@@ -323,7 +325,7 @@ if st.button("🚀 Generate Word & PDF Quotation"):
 
             # Check if table has at least 3 rows
             if len(table.rows) >= 3 and items_data:
-                # Target row 1 XML element
+                # Target row 1 XML element and Last row
                 template_tr = table.rows[1]._tr
                 last_tr = table.rows[-1]._tr
 
@@ -331,18 +333,18 @@ if st.button("🚀 Generate Word & PDF Quotation"):
                 table.rows[1].cells[0].text = items_data[0]["particulars"]
                 table.rows[1].cells[1].text = items_data[0]["price"]
 
-                # Clone Row 1 for remaining items (Safe XML insertion)
+                # Clone Row 1 for remaining items safely
                 for item in items_data[1:]:
                     new_tr = copy.deepcopy(template_tr)
                     last_tr.addprevious(new_tr)
-
-                    # Get cells of new XML row
-                    cells = new_tr.xpath('.//w:tc')
-                    if len(cells) >= 2:
-                        p0 = cells[0].xpath('.//w:p')[0]
-                        p0.text = item["particulars"]
-                        p1 = cells[1].xpath('.//w:p')[0]
-                        p1.text = item["price"]
+                    
+                    # Convert XML element back to python-docx Row Object
+                    from docx.table import _Row
+                    new_row = _Row(new_tr, table)
+                    
+                    # Insert text through python-docx Cells (No AttributeError)
+                    new_row.cells[0].text = item["particulars"]
+                    new_row.cells[1].text = item["price"]
 
         word_filename = f"Quotation_{customer_name}.docx"
         pdf_filename = f"Quotation_{customer_name}.pdf"
